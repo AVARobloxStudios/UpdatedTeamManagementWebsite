@@ -76,7 +76,7 @@ const navItems = [
   ["settings", "settings", "Settings"],
 ];
 
-let state = loadState();
+let state = null;
 let page = "workflow";
 let modal = null;
 let filters = { taskStatus: "all", taskPhase: "all", taskRole: "all", calendarView: "month", fileRole: "all" };
@@ -101,11 +101,35 @@ function freshState() {
   };
 }
 
-function loadState() {
+async function loadState() {
+  try {
+    const cloudData = await loadCloudState();
+
+    if (cloudData) {
+      const hydrated = {
+        ...freshState(),
+        ...cloudData,
+        phases: cloudData.phases?.length ? cloudData.phases : structuredClone(BASE_PHASES),
+      };
+
+      migrateState(hydrated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(hydrated));
+      return hydrated;
+    }
+  } catch (err) {
+    console.error("Firebase load failed, using local backup:", err);
+  }
+
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!saved) return freshState();
-    const hydrated = { ...freshState(), ...saved, phases: saved.phases?.length ? saved.phases : structuredClone(BASE_PHASES) };
+
+    const hydrated = {
+      ...freshState(),
+      ...saved,
+      phases: saved.phases?.length ? saved.phases : structuredClone(BASE_PHASES),
+    };
+
     migrateState(hydrated);
     return hydrated;
   } catch {
@@ -193,8 +217,14 @@ function migrateState(hydrated) {
   });
 }
 
-function saveState() {
+async function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+  try {
+    await saveCloudState(state);
+  } catch (err) {
+    console.error("Firebase save failed:", err);
+  }
 }
 
 function uid(prefix) {
@@ -1752,4 +1782,9 @@ document.addEventListener("keydown", (event) => {
   card.click();
 });
 
-render();
+async function startApp() {
+  state = await loadState();
+  render();
+}
+
+startApp();
